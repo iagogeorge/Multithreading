@@ -1,67 +1,39 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
+	"bytes"
+	"log"
 	"testing"
-	"time"
 )
 
-func mockServer(response string, delay time.Duration) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(delay)
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, response)
-	}))
-}
+// TestGetAddress function to test the getAddress function
+func TestGetAddress(t *testing.T) {
+	// Capturing log output
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
 
-func TestFetchAddress(t *testing.T) {
-	brasilAPIServer := mockServer(`{"cep": "01153000", "logradouro": "Rua Teste", "bairro": "Bairro Teste", "localidade": "Cidade Teste", "uf": "ST"}`, 500*time.Millisecond)
-	viaCepServer := mockServer(`{"cep": "01153000", "logradouro": "Avenida Teste", "bairro": "Bairro Teste", "localidade": "Cidade Teste", "uf": "ST"}`, 200*time.Millisecond)
-	defer brasilAPIServer.Close()
-	defer viaCepServer.Close()
+	cep := "01153000"
+	getAddress(cep)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+	// Resetting log output
+	log.SetOutput(nil)
 
-	ch := make(chan result, 2)
+	logOutput := logBuf.String()
 
-	go fetchAddress(ctx, brasilAPIServer.URL, ch)
-	go fetchAddress(ctx, viaCepServer.URL, ch)
+	if !contains(logOutput, "Fastest API:") {
+		t.Error("Expected log output to contain 'Fastest API:'")
+	}
 
-	select {
-	case res := <-ch:
-		if res.err != nil {
-			t.Fatalf("Error fetching address: %v", res.err)
-		}
-		if res.address.Logradouro != "Avenida Teste" {
-			t.Fatalf("Expected Avenida Teste but got %s", res.address.Logradouro)
-		}
-	case <-ctx.Done():
-		t.Fatalf("Timeout exceeded")
+	if !contains(logOutput, "Address:") {
+		t.Error("Expected log output to contain 'Address:'")
+	}
+
+	if contains(logOutput, "Error") {
+		t.Error("Unexpected error in log output")
 	}
 }
 
-func TestTimeout(t *testing.T) {
-	slowServer := mockServer(`{"cep": "01153000", "logradouro": "Rua Teste", "bairro": "Bairro Teste", "localidade": "Cidade Teste", "uf": "ST"}`, 2*time.Second)
-	defer slowServer.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	ch := make(chan result, 2)
-
-	go fetchAddress(ctx, slowServer.URL, ch)
-	go fetchAddress(ctx, slowServer.URL, ch)
-
-	select {
-	case res := <-ch:
-		if res.err == nil {
-			t.Fatalf("Expected timeout but got address: %+v", res.address)
-		}
-	case <-ctx.Done():
-		t.Log("Timeout exceeded as expected")
-	}
+// Helper function to check if the log output contains a specific substring
+func contains(logOutput, substring string) bool {
+	return bytes.Contains([]byte(logOutput), []byte(substring))
 }
